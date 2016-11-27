@@ -80,13 +80,13 @@ namespace LASNESTracer
             new SNESopcodes(0x1E, 3, false, "ASL ${0:X4},X"),
 
             //BCC
-            new SNESopcodes(0x90, 2, false, "BCC ${0:X2} (${0:X2})"),
+            new SNESopcodes(0x90, 2, false, "BCC ${0:X2} (${1:X4})"),
 
             //BCS
-            new SNESopcodes(0xB0, 2, false, "BCS ${0:X2} (${0:X2})"),
+            new SNESopcodes(0xB0, 2, false, "BCS ${0:X2} (${1:X4})"),
 
             //BEQ
-            new SNESopcodes(0xF0, 2, false, "BEQ ${0:X2} (${0:X2})"),
+            new SNESopcodes(0xF0, 2, false, "BEQ ${0:X2} (${1:X4})"),
 
             //BIT
             new SNESopcodes(0x24, 2, false, "BIT ${0:X2}"),
@@ -96,28 +96,28 @@ namespace LASNESTracer
             new SNESopcodes(0x89, 2, true,  "BIT #${0:X2}", "BIT #${0:X4}"),
 
             //BMI
-            new SNESopcodes(0x30, 2, false, "BMI ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x30, 2, false, "BMI ${0:X2} (${1:X4})"),
 
             //BNE
-            new SNESopcodes(0xD0, 2, false, "BNE ${0:X2} (${0:X4})"),
+            new SNESopcodes(0xD0, 2, false, "BNE ${0:X2} (${1:X4})"),
 
             //BPL
-            new SNESopcodes(0x10, 2, false, "BPL ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x10, 2, false, "BPL ${0:X2} (${1:X4})"),
 
             //BRA
-            new SNESopcodes(0x80, 2, false, "BRA ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x80, 2, false, "BRA ${0:X2} (${1:X4})"),
 
             //BRK
             new SNESopcodes(0x00, 2, false, "BRK ${0:X2}"),
 
             //BRL
-            new SNESopcodes(0x82, 3, false, "BRL ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x82, 3, false, "BRL ${0:X2} (${1:X4})"),
 
             //BVC
-            new SNESopcodes(0x50, 2, false, "BVC ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x50, 2, false, "BVC ${0:X2} (${1:X4})"),
 
             //BVS
-            new SNESopcodes(0x70, 2, false, "BVS ${0:X2} (${0:X4})"),
+            new SNESopcodes(0x70, 2, false, "BVS ${0:X2} (${1:X4})"),
 
             //CLC
             new SNESopcodes(0x18, 1, false, "CLC"),
@@ -446,10 +446,17 @@ namespace LASNESTracer
         static string temp;
         static string[] temp2;
 
+        static StreamWriter output;
+
         //DMA
         static int[] DMAsize = new int[8];
         static bool[] DMAenabled = new bool[8];
         static bool DMAdelay;
+
+        //A and I
+        static int expectValue; //0 = none; 1 = write; 2 = read
+        static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL
+        static int lastaddress2, lastdata2, lastcontrol2 = 0;
 
         static int searchOpcode(int _opcode)
         {
@@ -480,18 +487,103 @@ namespace LASNESTracer
             return false;
         }
 
+        static void checkValue()
+        {
+            if (expectValue != 0)
+            {
+                if (lastaddress2 == address - 1)
+                    opcodedata2 |= data << (8 * counter);
+                else
+                    opcodedata2 = data;
+                counter++;
+                if (causeValue == 0 && counter >= 2)
+                {
+                    //A
+                    if (lastaddress2 == address - 1)
+                    {
+                        expectValue = 0;
+                        Console.WriteLine("A= " + opcodedata2.ToString("X4"));
+                        output.WriteLine("A= " + opcodedata2.ToString("X4"));
+                        a16 = true;
+                    }
+                    else
+                    {
+                        expectValue = 0;
+                        Console.WriteLine("A= " + opcodedata2.ToString("X2"));
+                        output.WriteLine("A= " + opcodedata2.ToString("X2"));
+                        a16 = false;
+                    }
+                }
+                else if (causeValue == 1 && counter >= 2)
+                {
+                    //X/Y
+                    if (lastaddress2 == address - 1)
+                    {
+                        expectValue = 0;
+                        Console.WriteLine("I= " + opcodedata2.ToString("X4"));
+                        output.WriteLine("I= " + opcodedata2.ToString("X4"));
+                        i16 = true;
+                    }
+                    else
+                    {
+                        expectValue = 0;
+                        Console.WriteLine("I= " + opcodedata2.ToString("X2"));
+                        output.WriteLine("I= " + opcodedata2.ToString("X2"));
+                        i16 = false;
+                    }
+                }
+                else if (causeValue == 2 && counter >= 2)
+                {
+                    //PC
+                    expectValue = 0;
+                    Console.WriteLine("PC= " + opcodedata2.ToString("X4"));
+                    output.WriteLine("PC= " + opcodedata2.ToString("X4"));
+                }
+                else if (causeValue == 3 && counter >= 3)
+                {
+                    //PC
+                    expectValue = 0;
+                    Console.WriteLine("PC= " + opcodedata2.ToString("X6"));
+                    output.WriteLine("PC= " + opcodedata2.ToString("X6"));
+                }
+                lastaddress2 = address;
+            }
+        }
+
+        static void writeOutput()
+        {
+            if (checkOpcode(opcodedata1, new string[] { "BCC", "BCS", "BEQ", "BMI", "BNE", "BPL", "BRA", "BRL", "BVC", "BVS" }))
+            {
+                //if branch
+                Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2, opcodeaddr + 2 + (SByte)opcodedata2));
+                output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2, opcodeaddr + 2 + (SByte)opcodedata2));
+                return;
+            }
+
+            if (imm16 == 1)
+            {
+                Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace16, opcodedata2));
+                output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace16, opcodedata2));
+            }
+            else
+            {
+                Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
+                output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
+            }
+        }
+
         static void Main(string[] args)
         {
             //CSV dwango bus LA
             //ignore, ignore, address, data, control
             //Control: /CART, /WR, /RD, /IRQ
-            Console.WriteLine("LASNESTracer 0.1 - by LuigiBlood\nUsage: LASNESTracer <filepath csv>\n--------------------");
+            Console.WriteLine("LASNESTracer 0.2 - by LuigiBlood\nUsage: LASNESTracer <filepath csv>\n--------------------");
 
             if (File.Exists(args[0]))
             {
                 Console.WriteLine("Loading file...");
                 StreamReader csv = File.OpenText(args[0]);
-                StreamWriter output = new StreamWriter(args[0] + ".log");
+                output = new StreamWriter(args[0] + ".log");
                 temp = csv.ReadLine(); //Read first line and ignore
 
                 while (csv.EndOfStream == false)
@@ -499,9 +591,11 @@ namespace LASNESTracer
                     //Read line
                     temp = csv.ReadLine();
                     temp2 = temp.Split(',');
-                    address = Int32.Parse(temp2[2], System.Globalization.NumberStyles.HexNumber);
-                    data = Int32.Parse(temp2[3], System.Globalization.NumberStyles.HexNumber);
-                    control = Int32.Parse(temp2[4], System.Globalization.NumberStyles.HexNumber);
+                    address = Int32.Parse(temp2[1], System.Globalization.NumberStyles.HexNumber);
+                    data = Int32.Parse(temp2[2], System.Globalization.NumberStyles.HexNumber);
+                    control = (Int32.Parse(temp2[3], System.Globalization.NumberStyles.HexNumber) << 1)
+                        | (Int32.Parse(temp2[4], System.Globalization.NumberStyles.HexNumber) << 2)
+                        | (Int32.Parse(temp2[5], System.Globalization.NumberStyles.HexNumber) << 3);
 
                     //Console.WriteLine(address.ToString("X4") + " : " + data.ToString("X2") + " : " + control.ToString("X2"));
 
@@ -515,6 +609,8 @@ namespace LASNESTracer
 
                         if (isRD(control))
                         {
+                            checkValue();
+
                             if (!DMAdelay)
                             {
                                 bool isDMA = false;
@@ -583,17 +679,60 @@ namespace LASNESTracer
 
                                     if (counter >= opcodeList[searchOpcode(opcodedata1)].totalbytes + imm16 - 1)
                                     {
-                                        if (imm16 == 1)
-                                        {
-                                            Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace16, opcodedata2));
-                                            output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace16, opcodedata2));
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
-                                            output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
-                                        }
+                                        writeOutput();
                                         opcode = false;
+
+                                        if (checkOpcode(opcodedata1, new string[] { "STA", "PHA" }))
+                                        {
+                                            expectValue = 1;
+                                            causeValue = 0;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "LDA", "PLA" }))
+                                        {
+                                            expectValue = 2;
+                                            causeValue = 0;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "STX", "STY", "PHX", "PHY" }))
+                                        {
+                                            expectValue = 1;
+                                            causeValue = 1;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "LDX", "LDY", "PLX", "PLY" }))
+                                        {
+                                            expectValue = 2;
+                                            causeValue = 1;
+                                            counter = 0;
+                                        }
+                                        /*
+                                        else if (checkOpcode(opcodedata1, new string[] { "JSR" }))
+                                        {
+                                            expectValue = 1;
+                                            causeValue = 2;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "RTS" }))
+                                        {
+                                            expectValue = 2;
+                                            causeValue = 2;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "JSL" }))
+                                        {
+                                            expectValue = 1;
+                                            causeValue = 3;
+                                            counter = 0;
+                                        }
+                                        else if (checkOpcode(opcodedata1, new string[] { "RTL", "RTI" }))
+                                        {
+                                            expectValue = 2;
+                                            causeValue = 3;
+                                            counter = 0;
+                                        }*/
+                                        else
+                                            expectValue = 0;
 
                                         if (checkOpcode(opcodedata1, "REP"))
                                         {
@@ -627,8 +766,8 @@ namespace LASNESTracer
 
                                     if (opcodeList[searchOpcode(opcodedata1)].totalbytes == 1)
                                     {
-                                        Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
-                                        output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
+                                        imm16 = 0;
+                                        writeOutput();
                                         opcode = false;
                                     }
                                 }
@@ -640,7 +779,7 @@ namespace LASNESTracer
                         }
                         else if (isWR(control))
                         {
-
+                            checkValue();
                         }
                         else
                         {
@@ -670,6 +809,7 @@ namespace LASNESTracer
                                 }
                             }
                         }
+                        checkValue();
                     }
                 }
 
