@@ -515,6 +515,7 @@ namespace LASNESTracer
                         }
                         else
                         {
+                            dataValue &= 0xFF;
                             expectValue = 0;
                             Console.WriteLine("A= " + dataValue.ToString("X2"));
                             output.WriteLine("A= " + dataValue.ToString("X2"));
@@ -533,6 +534,7 @@ namespace LASNESTracer
                         }
                         else
                         {
+                            dataValue &= 0xFF;
                             expectValue = 0;
                             Console.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X2"));
                             output.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X2"));
@@ -666,7 +668,6 @@ namespace LASNESTracer
                 causeValue = 5;
                 counter = 0;
             }
-            /*
             else if (checkOpcode(opcodedata1, new string[] { "JSR" }))
             {
                 expectValue = 1;
@@ -690,7 +691,7 @@ namespace LASNESTracer
                 expectValue = 2;
                 causeValue = 3;
                 counter = 0;
-            }*/
+            }
             else
                 expectValue = 0;
 
