@@ -456,7 +456,9 @@ namespace LASNESTracer
         //A and I
         static int expectValue; //0 = none; 1 = write; 2 = read
         static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL
+        static int dataValue = 0;
         static int lastaddress2, lastdata2, lastcontrol2 = 0;
+        static int indirectValue; //0 = none; 1 = 16-bit; 2 = 24-bit
 
         static int searchOpcode(int _opcode)
         {
@@ -491,60 +493,83 @@ namespace LASNESTracer
         {
             if (expectValue != 0)
             {
-                if (lastaddress2 == address - 1)
-                    opcodedata2 |= data << (8 * counter);
-                else
-                    opcodedata2 = data;
+                if (lastaddress2 == address - 1 && counter > 0)
+                    dataValue |= (data & 0xFF) << (8 * counter);
+                else if (counter == 0)
+                    dataValue = (data & 0xFF);
                 counter++;
-                if (causeValue == 0 && counter >= 2)
+                if (indirectValue == 0)
                 {
-                    //A
-                    if (lastaddress2 == address - 1)
+                    if (causeValue == 0 && counter >= 2)
                     {
-                        expectValue = 0;
-                        Console.WriteLine("A= " + opcodedata2.ToString("X4"));
-                        output.WriteLine("A= " + opcodedata2.ToString("X4"));
-                        a16 = true;
+                        //A
+                        if (lastaddress2 == address - 1)
+                        {
+                            expectValue = 0;
+                            Console.WriteLine("A= " + dataValue.ToString("X4"));
+                            output.WriteLine("A= " + dataValue.ToString("X4"));
+                            a16 = true;
+                        }
+                        else
+                        {
+                            expectValue = 0;
+                            Console.WriteLine("A= " + dataValue.ToString("X2"));
+                            output.WriteLine("A= " + dataValue.ToString("X2"));
+                            a16 = false;
+                        }
                     }
-                    else
+                    else if (causeValue == 1 && counter >= 2)
                     {
+                        //X/Y
+                        if (lastaddress2 == address - 1)
+                        {
+                            expectValue = 0;
+                            Console.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X4"));
+                            output.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X4"));
+                            i16 = true;
+                        }
+                        else
+                        {
+                            expectValue = 0;
+                            Console.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X2"));
+                            output.WriteLine(opcodeList[searchOpcode(opcodedata1)].trace.Substring(2, 1) + "= " + dataValue.ToString("X2"));
+                            i16 = false;
+                        }
+                    }
+                    else if (causeValue == 2 && counter >= 2)
+                    {
+                        //PC
                         expectValue = 0;
-                        Console.WriteLine("A= " + opcodedata2.ToString("X2"));
-                        output.WriteLine("A= " + opcodedata2.ToString("X2"));
-                        a16 = false;
+                        Console.WriteLine("PC= " + dataValue.ToString("X4"));
+                        output.WriteLine("PC= " + dataValue.ToString("X4"));
+                    }
+                    else if (causeValue == 3 && counter >= 3)
+                    {
+                        //PC
+                        expectValue = 0;
+                        Console.WriteLine("PC= " + dataValue.ToString("X6"));
+                        output.WriteLine("PC= " + dataValue.ToString("X6"));
                     }
                 }
-                else if (causeValue == 1 && counter >= 2)
+                else if (indirectValue == 1)
                 {
-                    //X/Y
-                    if (lastaddress2 == address - 1)
+                    if (counter >= 2)
                     {
-                        expectValue = 0;
-                        Console.WriteLine("I= " + opcodedata2.ToString("X4"));
-                        output.WriteLine("I= " + opcodedata2.ToString("X4"));
-                        i16 = true;
-                    }
-                    else
-                    {
-                        expectValue = 0;
-                        Console.WriteLine("I= " + opcodedata2.ToString("X2"));
-                        output.WriteLine("I= " + opcodedata2.ToString("X2"));
-                        i16 = false;
+                        Console.WriteLine("ADDR= $" + dataValue.ToString("X4"));
+                        output.WriteLine("ADDR= $" + dataValue.ToString("X4"));
+                        indirectValue = 0;
+                        counter = 0;
                     }
                 }
-                else if (causeValue == 2 && counter >= 2)
+                else if (indirectValue == 2)
                 {
-                    //PC
-                    expectValue = 0;
-                    Console.WriteLine("PC= " + opcodedata2.ToString("X4"));
-                    output.WriteLine("PC= " + opcodedata2.ToString("X4"));
-                }
-                else if (causeValue == 3 && counter >= 3)
-                {
-                    //PC
-                    expectValue = 0;
-                    Console.WriteLine("PC= " + opcodedata2.ToString("X6"));
-                    output.WriteLine("PC= " + opcodedata2.ToString("X6"));
+                    if (counter >= 3)
+                    {
+                        Console.WriteLine("ADDR= $" + dataValue.ToString("X6"));
+                        output.WriteLine("ADDR= $" + dataValue.ToString("X6"));
+                        indirectValue = 0;
+                        counter = 0;
+                    }
                 }
                 lastaddress2 = address;
             }
@@ -569,6 +594,75 @@ namespace LASNESTracer
             {
                 Console.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
                 output.WriteLine(opcodeaddr.ToString("X4") + ":" + String.Format(opcodeList[searchOpcode(opcodedata1)].trace, opcodedata2));
+            }
+        }
+
+        static void ValueTest()
+        {
+            if (checkOpcode(opcodedata1, new string[] { "STA", "PHA" }))
+            {
+                expectValue = 1;
+                causeValue = 0;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "LDA", "PLA" }))
+            {
+                expectValue = 2;
+                causeValue = 0;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "STX", "STY", "PHX", "PHY" }))
+            {
+                expectValue = 1;
+                causeValue = 1;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "LDX", "LDY", "PLX", "PLY" }))
+            {
+                expectValue = 2;
+                causeValue = 1;
+                counter = 0;
+            }
+            /*
+            else if (checkOpcode(opcodedata1, new string[] { "JSR" }))
+            {
+                expectValue = 1;
+                causeValue = 2;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "RTS" }))
+            {
+                expectValue = 2;
+                causeValue = 2;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "JSL" }))
+            {
+                expectValue = 1;
+                causeValue = 3;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "RTL", "RTI" }))
+            {
+                expectValue = 2;
+                causeValue = 3;
+                counter = 0;
+            }*/
+            else
+                expectValue = 0;
+
+            if (expectValue != 0)
+            {
+                if (opcodeList[searchOpcode(opcodedata1)].trace.Substring(4, 1) == "[")
+                {
+                    indirectValue = 2;
+                }
+                else if (opcodeList[searchOpcode(opcodedata1)].trace.Substring(4, 1) == "(")
+                {
+                    indirectValue = 1;
+                }
+                else
+                    indirectValue = 0;
             }
         }
 
@@ -682,57 +776,7 @@ namespace LASNESTracer
                                         writeOutput();
                                         opcode = false;
 
-                                        if (checkOpcode(opcodedata1, new string[] { "STA", "PHA" }))
-                                        {
-                                            expectValue = 1;
-                                            causeValue = 0;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "LDA", "PLA" }))
-                                        {
-                                            expectValue = 2;
-                                            causeValue = 0;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "STX", "STY", "PHX", "PHY" }))
-                                        {
-                                            expectValue = 1;
-                                            causeValue = 1;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "LDX", "LDY", "PLX", "PLY" }))
-                                        {
-                                            expectValue = 2;
-                                            causeValue = 1;
-                                            counter = 0;
-                                        }
-                                        /*
-                                        else if (checkOpcode(opcodedata1, new string[] { "JSR" }))
-                                        {
-                                            expectValue = 1;
-                                            causeValue = 2;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "RTS" }))
-                                        {
-                                            expectValue = 2;
-                                            causeValue = 2;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "JSL" }))
-                                        {
-                                            expectValue = 1;
-                                            causeValue = 3;
-                                            counter = 0;
-                                        }
-                                        else if (checkOpcode(opcodedata1, new string[] { "RTL", "RTI" }))
-                                        {
-                                            expectValue = 2;
-                                            causeValue = 3;
-                                            counter = 0;
-                                        }*/
-                                        else
-                                            expectValue = 0;
+                                        ValueTest();
 
                                         if (checkOpcode(opcodedata1, "REP"))
                                         {
