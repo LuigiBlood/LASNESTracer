@@ -455,7 +455,7 @@ namespace LASNESTracer
 
         //A and I
         static int expectValue; //0 = none; 1 = write; 2 = read
-        static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL
+        static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL; 4 = check A; 5 = check X/Y
         static int dataValue = 0;
         static int lastaddress2, lastdata2, lastcontrol2 = 0;
         static int indirectValue; //0 = none; 1 = 16-bit; 2 = 24-bit
@@ -493,9 +493,12 @@ namespace LASNESTracer
         {
             if (expectValue != 0)
             {
-                if (lastaddress2 == address - 1 && counter > 0)
+                //if (lastaddress2 != address - 1)
+                    //counter = 0;
+
+                if (counter > 0)
                     dataValue |= (data & 0xFF) << (8 * counter);
-                else if (counter == 0)
+                else
                     dataValue = (data & 0xFF);
                 counter++;
                 if (indirectValue == 0)
@@ -549,6 +552,34 @@ namespace LASNESTracer
                         expectValue = 0;
                         Console.WriteLine("PC= " + dataValue.ToString("X6"));
                         output.WriteLine("PC= " + dataValue.ToString("X6"));
+                    }
+                    else if (causeValue == 4 && counter >= 2)
+                    {
+                        //A check
+                        if (lastaddress2 == address - 1)
+                        {
+                            expectValue = 0;
+                            a16 = true;
+                        }
+                        else
+                        {
+                            expectValue = 0;
+                            a16 = false;
+                        }
+                    }
+                    else if (causeValue == 5 && counter >= 2)
+                    {
+                        //X/Y check
+                        if (lastaddress2 == address - 1)
+                        {
+                            expectValue = 0;
+                            i16 = true;
+                        }
+                        else
+                        {
+                            expectValue = 0;
+                            i16 = false;
+                        }
                     }
                 }
                 else if (indirectValue == 1)
@@ -623,6 +654,18 @@ namespace LASNESTracer
                 causeValue = 1;
                 counter = 0;
             }
+            else if (checkOpcode(opcodedata1, new string[] { "ADC", "AND", "CMP", "EOR", "JSR", "ORA", "SBC" }))
+            {
+                expectValue = 2;
+                causeValue = 4;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "CPX", "CPY" }))
+            {
+                expectValue = 2;
+                causeValue = 5;
+                counter = 0;
+            }
             /*
             else if (checkOpcode(opcodedata1, new string[] { "JSR" }))
             {
@@ -660,6 +703,11 @@ namespace LASNESTracer
                 else if (opcodeList[searchOpcode(opcodedata1)].trace.Substring(4, 1) == "(")
                 {
                     indirectValue = 1;
+                }
+                else if (opcodeList[searchOpcode(opcodedata1)].trace.Substring(4, 1) == "#")
+                {
+                    indirectValue = 0;
+                    expectValue = 0;
                 }
                 else
                     indirectValue = 0;
@@ -799,20 +847,23 @@ namespace LASNESTracer
                                 }
                                 else
                                 {
-                                    opcode = true;
-                                    //Console.WriteLine("Opcode found");
-                                    counter = 0;
-                                    WAI = false;
-                                    opcodeaddr = address;
-                                    opcodedata1 = data;
-                                    opcodedata2 = 0;
-                                    opcodedata3 = 0;
-
-                                    if (opcodeList[searchOpcode(opcodedata1)].totalbytes == 1)
+                                    if (expectValue == 0)
                                     {
-                                        imm16 = 0;
-                                        writeOutput();
-                                        opcode = false;
+                                        opcode = true;
+                                        //Console.WriteLine("Opcode found");
+                                        counter = 0;
+                                        WAI = false;
+                                        opcodeaddr = address;
+                                        opcodedata1 = data;
+                                        opcodedata2 = 0;
+                                        opcodedata3 = 0;
+
+                                        if (opcodeList[searchOpcode(opcodedata1)].totalbytes == 1)
+                                        {
+                                            imm16 = 0;
+                                            writeOutput();
+                                            opcode = false;
+                                        }
                                     }
                                 }
                             }
