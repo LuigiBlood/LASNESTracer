@@ -206,14 +206,14 @@ namespace LASNESTracer
 
             //JMP
             new SNESopcodes(0x4C, 3, false, "JMP ${0:X4}"),
-            new SNESopcodes(0x5C, 4, false, "JMP ${0:X6}"),
+            new SNESopcodes(0x5C, 4, false, "JML ${0:X6}"),
             new SNESopcodes(0x6C, 3, false, "JMP (${0:X4})"),
             new SNESopcodes(0x7C, 3, false, "JMP (${0:X4},X)"),
             new SNESopcodes(0xDC, 3, false, "JMP [${0:X4}]"),
 
             //JSR
             new SNESopcodes(0x20, 3, false, "JSR ${0:X4}"),
-            new SNESopcodes(0x22, 4, false, "JSR ${0:X6}"),
+            new SNESopcodes(0x22, 4, false, "JSL ${0:X6}"),
             new SNESopcodes(0xFC, 3, false, "JSR (${0:X4},X)"),
 
             //LDA
@@ -455,7 +455,7 @@ namespace LASNESTracer
 
         //A and I
         static int expectValue; //0 = none; 1 = write; 2 = read
-        static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL; 4 = check A; 5 = check X/Y
+        static int causeValue; //0 = A, 1 = X/Y, 2 = JSR/RTS, 3 = JSL/RTL; 4 = check A; 5 = check X/Y; 6+ = dummy
         static int dataValue = 0;
         static int lastaddress2, lastdata2, lastcontrol2 = 0;
         static int indirectValue; //0 = none; 1 = 16-bit; 2 = 24-bit
@@ -583,6 +583,10 @@ namespace LASNESTracer
                             i16 = false;
                         }
                     }
+                    else if (causeValue >= 6)
+                    {
+                        expectValue = 0;
+                    }
                 }
                 else if (indirectValue == 1)
                 {
@@ -690,6 +694,12 @@ namespace LASNESTracer
             {
                 expectValue = 2;
                 causeValue = 3;
+                counter = 0;
+            }
+            else if (checkOpcode(opcodedata1, new string[] { "JMP" }))
+            {
+                expectValue = 1;
+                causeValue = 6;
                 counter = 0;
             }
             else
